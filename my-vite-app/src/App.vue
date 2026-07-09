@@ -22,11 +22,139 @@ const errorMessage = ref('')
 const gameSortKey = ref<'name' | 'totalPlaytime' | 'recentPlaytime'>('totalPlaytime')
 const gameSortDirection = ref<'asc' | 'desc'>('desc')
 
+type ApiSteamGame = {
+  appid: number
+  name: string
+  playtime_forever?: number
+  playtime_2weeks?: number
+}
+
+type ApiSteamProfile = {
+  steamid: string
+  personaname?: string
+  profileurl?: string
+  avatarfull?: string
+  avatarmedium?: string
+}
+
+type ApiSteamFriend = {
+  steamid: string
+  profile?: ApiSteamProfile | null
+}
+
+type ApiSteamStats = {
+  totalGames: number
+  totalHours: number
+  unplayedGames: number
+  mostPlayedGame: ApiSteamGame | null
+  averageHours: number
+}
+
+type ApiAppDetails = {
+  app: {
+    name?: string
+    header_image?: string
+    genres?: Array<{ description?: string }>
+    categories?: Array<{ description?: string }>
+    platforms?: Record<string, boolean>
+    price_overview?: { final_formatted?: string }
+    release_date?: { date?: string }
+  }
+}
+
+type ApiCompareResult = {
+  shared: Array<{ name: string }>
+  onlyPrimary: Array<{ name: string }>
+  onlyFriend: Array<{ name: string }>
+}
+
+type ApiRecommendation = {
+  appid: number
+  name: string
+  reason: string
+  recommendationScore: number
+  playerCount: number | null
+  headerImage: string | null
+}
+
 const quickStats = [
   { label: 'Profile status', value: 'Ready' },
   { label: 'Recent games', value: '12' },
   { label: 'Wishlist', value: '7' },
 ]
+
+function normalizeCurrentUser(data: { steamid: string; profile: ApiSteamProfile | null }): CurrentUser {
+  return {
+    id: data.steamid,
+    name: data.profile?.personaname || data.steamid,
+    steamId: data.steamid,
+    profileUrl: data.profile?.profileurl || `https://steamcommunity.com/profiles/${data.steamid}`,
+    privacyNote: 'Steam privacy settings may limit which profile details are visible.',
+    avatarUrl: data.profile?.avatarfull || data.profile?.avatarmedium || '',
+  }
+}
+
+function normalizeStats(data: ApiSteamStats): SteamStats {
+  return {
+    totalGamesOwned: data.totalGames,
+    totalHoursPlayed: data.totalHours,
+    mostPlayedGame: data.mostPlayedGame?.name || 'Not available',
+    unplayedGames: data.unplayedGames,
+    averageHoursPerGame: data.averageHours,
+  }
+}
+
+function normalizeGame(game: ApiSteamGame): SteamGame {
+  return {
+    appid: game.appid,
+    name: game.name,
+    totalPlaytime: game.playtime_forever || 0,
+    recentPlaytime: game.playtime_2weeks || 0,
+  }
+}
+
+function normalizeFriend(friend: ApiSteamFriend): SteamFriend {
+  return {
+    steamId: friend.steamid,
+    name: friend.profile?.personaname || friend.steamid,
+    avatarUrl: friend.profile?.avatarfull || friend.profile?.avatarmedium || '',
+  }
+}
+
+function normalizeAppDetails(appid: number, data: ApiAppDetails): SteamAppDetails {
+  const app = data.app
+  return {
+    appid,
+    name: app.name || 'Unknown app',
+    headerImage: app.header_image || '',
+    genres: app.genres?.map((genre) => genre.description || '').filter(Boolean) || [],
+    categories: app.categories?.map((category) => category.description || '').filter(Boolean) || [],
+    platforms: Object.entries(app.platforms || {})
+      .filter(([, supported]) => supported)
+      .map(([platform]) => platform),
+    price: app.price_overview?.final_formatted,
+    releaseDate: app.release_date?.date || 'Unavailable',
+  }
+}
+
+function normalizeComparison(data: ApiCompareResult): SteamCompareResult {
+  return {
+    sharedGames: data.shared.map((game) => game.name),
+    userOnlyGames: data.onlyPrimary.map((game) => game.name),
+    friendOnlyGames: data.onlyFriend.map((game) => game.name),
+  }
+}
+
+function normalizeRecommendation(recommendation: ApiRecommendation): PlayerTogetherRecommendation {
+  return {
+    appid: recommendation.appid,
+    name: recommendation.name,
+    reason: recommendation.reason,
+    score: recommendation.recommendationScore,
+    playerCount: recommendation.playerCount || 0,
+    imageUrl: recommendation.headerImage || '',
+  }
+}
 
 function clearSignedInState(message = '') {
   currentUser.value = null
@@ -100,10 +228,15 @@ async function loadCurrentUser() {
       throw new Error('Unable to load your Steam profile data')
     }
 
-    currentUser.value = await userResponse.json()
-    currentStats.value = await statsResponse.json()
-    games.value = await gamesResponse.json()
-    friends.value = await friendsResponse.json()
+    const userData = await userResponse.json()
+    const statsData = await statsResponse.json()
+    const gamesData = await gamesResponse.json()
+    const friendsData = await friendsResponse.json()
+
+    currentUser.value = normalizeCurrentUser(userData)
+    currentStats.value = normalizeStats(statsData)
+    games.value = (gamesData.games || []).map(normalizeGame)
+    friends.value = (friendsData.friends || []).map(normalizeFriend)
     errorMessage.value = ''
     isSignedIn.value = true
   } catch (error) {
@@ -132,7 +265,7 @@ async function openGameDetails(game: SteamGame) {
       throw new Error('Unable to load app details')
     }
 
-    selectedAppDetails.value = await detailsResponse.json()
+    selectedAppDetails.value = normalizeAppDetails(game.appid, await detailsResponse.json())
     selectedPlayerCount.value = await playerCountResponse.json()
     errorMessage.value = ''
   } catch (error) {
@@ -180,15 +313,18 @@ async function selectFriend(friendSteamId: string) {
   try {
     const [comparisonResponse, recommendationsResponse] = await Promise.all([
       fetch(`/api/compare/${friendSteamId}`, { credentials: 'include' }),
-      fetch(`/api/recommendations/player-together?friendSteamId=${encodeURIComponent(friendSteamId)}`, { credentials: 'include' }),
+      fetch(`/api/recommendations/play-together?friendSteamId=${encodeURIComponent(friendSteamId)}`, { credentials: 'include' }),
     ])
 
     if (!comparisonResponse.ok || !recommendationsResponse.ok) {
       throw new Error('Unable to compare your library with that friend')
     }
 
-    comparison.value = await comparisonResponse.json()
-    recommendations.value = await recommendationsResponse.json()
+    const comparisonData = await comparisonResponse.json()
+    const recommendationsData = await recommendationsResponse.json()
+
+    comparison.value = normalizeComparison(comparisonData)
+    recommendations.value = (recommendationsData.recommendations || []).map(normalizeRecommendation)
     errorMessage.value = ''
   } catch (error) {
     comparison.value = null
@@ -1059,4 +1195,3 @@ ul {
   }
 }
 </style>
-
