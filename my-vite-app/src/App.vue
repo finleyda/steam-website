@@ -1236,9 +1236,3 @@ ul {
 }
 </style>
 
-  .header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-</style>
