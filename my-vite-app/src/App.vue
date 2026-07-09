@@ -741,6 +741,46 @@ body {
 .secondary-btn {
   background: linear-gradient(180deg, var(--steam-panel-alt) 0%, var(--steam-blue-dark) 100%);
   color: white;
+  padding: 1.5rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.header h1 {
+  margin: 0 0 0.25rem;
+}
+
+.header p {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.ghost-btn,
+.primary-btn,
+.secondary-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ghost-btn {
+  background: transparent;
+  color: white;
+  border: 1px solid rgba(255,255,255,0.4);
+}
+
+.primary-btn {
+  background: #66c0f4;
+  color: #08111b;
+}
+
+.secondary-btn {
+  background: #2a475e;
+  color: white;
 }
 
 .dashboard {
@@ -1188,6 +1228,13 @@ ul {
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+</style>
 
   .header {
     flex-direction: column;
